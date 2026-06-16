@@ -1,93 +1,158 @@
 # Letterboxd Hours
 
-Extensión para Chrome/Edge (Manifest V3, TypeScript) que inyecta una estadística
-**HOURS** (horas totales vistas) en el perfil de Letterboxd, a la izquierda de
-**FILMS**, clonando los estilos nativos de la página.
+A Chrome/Edge extension (Manifest V3 + TypeScript) that adds an **HOURS** stat to
+any Letterboxd profile — the total time that person has spent watching films —
+right next to **FILMS**, styled exactly like the native counters.
 
-![ubicación: a la izquierda de FILMS en la cabecera del perfil]
+---
 
-## Cómo funciona
+## Quick start
 
-Letterboxd no tiene API pública, así que la extensión hace *scraping* educado:
+You need [Node.js](https://nodejs.org) 18 or newer.
 
-1. **Content script** (`src/content.ts`): detecta el perfil, lee el contador de
-   **FILMS** del DOM, **clona** el bloque `.profile-statistic` nativo (hereda
-   tipografía/colores/márgenes exactos) y lo inserta a la izquierda de FILMS.
-2. **Caché** (`chrome.storage.local`): se guarda `{ username, totalFilms,
-   totalMinutes, slugs }` por usuario, más una caché global `slug → runtime`.
-   - Si `totalFilms` cacheado **==** FILMS del DOM → muestra las horas al instante.
-   - Si el DOM tiene **más** películas → muestra el valor antiguo + un botón
-     discreto **«Actualizar horas»**.
-   - Sin caché → botón **«Calcular horas»** (nunca scrapeamos sin tu intención).
-3. **Background service worker** (`src/background.ts`): hace el trabajo de red.
-   - Recorre `/<user>/films/page/N/` para reunir los *slugs* de todas las pelis.
-   - Hace `fetch` a cada `/film/<slug>/` y extrae el `runtime` (`133 mins`).
-   - **Solo** descarga las pelis cuyo runtime no esté ya en la caché global, así
-     «Actualizar» tras ver 3 pelis nuevas solo hace 3 peticiones.
+```bash
+npm install      # 1. install dev tools (esbuild, typescript)
+npm run build    # 2. compile into the dist/ folder
+```
 
-### Rate limiting (importante)
+Then load the `dist/` folder into your browser:
 
-Toda la red pasa por `src/rateLimiter.ts` (`runPool`), que limita la
-**concurrencia** (4 peticiones simultáneas) y añade un **delay** (350 ms) entre
-el inicio de cada petición; las páginas de listado se espacian 500 ms. Esto evita
-saturar los servidores de Letterboxd y reduce el riesgo de bloqueo de IP. Ajusta
-las constantes al principio de `src/background.ts` si lo necesitas.
+**Chrome**
+1. Go to `chrome://extensions`
+2. Turn on **Developer mode** (top-right toggle)
+3. Click **Load unpacked** and pick the **`dist/`** folder
 
-> El worker usa `credentials:"include"`, por lo que cuenta también las entradas
-> privadas/de amigos tal y como tú las ves al estar logueado.
+**Edge**
+1. Go to `edge://extensions`
+2. Turn on **Developer mode** (left sidebar)
+3. Click **Load unpacked** and pick the **`dist/`** folder
 
-## Estructura
+Open any profile (e.g. `https://letterboxd.com/iagoesteevezz/`), click
+**"Calculate hours"** once, and you're done. After that the hours show instantly.
+
+> The button text follows your browser language (English by default, Spanish
+> included). Add more languages in `src/i18n.ts`.
+
+---
+
+## Demo
+
+**First calculation** — click **Calculate hours**, watch it work, get your total:
+
+![First calculation](docs/calculate.gif)
+
+**Updating after watching new films** — click **Update hours** and it only
+fetches the new ones (instant):
+
+![Delta update](docs/update.gif)
+
+> These are illustrative mockups of the injected widget. Want them to be real
+> screen recordings instead? Record a GIF from your browser and replace the two
+> files in `docs/`.
+
+---
+
+## How to use it
+
+| You see… | What it means | What to do |
+|---|---|---|
+| **Calculate hours** | First time on this profile | Click it once to calculate |
+| A number (e.g. `332`) | Hours are cached and up to date | Nothing — it's instant |
+| A number + **Update hours** | You watched new films since last time | Click to add just the new ones |
+| A number + **Finish calculation** | The last run was interrupted (you reloaded mid-scrape) | Click to finish it — it resumes from where it stopped |
+| **Calculating… 12/40** | It's working | Wait — it's fetching runtimes |
+
+(Button labels appear in your browser's language — the table shows the English ones.)
+
+If you reload the page while it's still calculating, nothing is lost: the
+progress it had already fetched is saved, the partial result is shown, and a
+**Finish calculation** button lets you finish (it picks up where it left off).
+
+The first calculation on a big profile takes a little while (it has to read every
+film's runtime, slowly and politely). Every visit after that is instant.
+
+---
+
+## How it works (short version)
+
+Letterboxd has no public API, so the extension reads the public pages directly:
+
+1. It reads your **FILMS** count straight from the profile.
+2. It collects the list of films you've watched.
+3. It opens each film page once to read its runtime, then adds them all up.
+4. It saves the result, so it never has to do that work twice.
+
+To stay fast **and** kind to Letterboxd's servers, it uses three strategies:
+
+- **Instant** — if nothing changed since last time, it just shows the saved value.
+- **Update (delta)** — if you added a few films, it only looks at the *new* ones
+  and adds their minutes to the saved total. It never re-checks old films.
+- **Full** — only the very first time, or if something looks off.
+
+It also limits how fast it makes requests (a few at a time, with short pauses) so
+it behaves like a normal visitor and won't get your IP throttled.
+
+---
+
+## Project layout
 
 ```
 letterboxd-hours/
-├── manifest.json en → public/manifest.json
-├── build.mjs              # bundler (esbuild) + copia de estáticos
-├── package.json / tsconfig.json
+├── build.mjs            # compiles src/ → dist/
+├── package.json
+├── tsconfig.json
 ├── public/
-│   ├── manifest.json      # MV3
-│   └── icons/             # icon16/48/128.png
+│   ├── manifest.json    # extension config (MV3)
+│   └── icons/           # toolbar icons
 └── src/
-    ├── types.ts           # tipos + claves de storage + nombre de Port
-    ├── storage.ts         # wrappers de chrome.storage.local
-    ├── rateLimiter.ts     # pool de concurrencia + throttle  ← crítico
-    ├── parser.ts          # regex sobre HTML (sin DOM en el worker) ← crítico
-    ├── background.ts      # motor de scraping (service worker)
-    └── content.ts         # detección de perfil + inyección DOM + UI
+    ├── content.ts       # injects the HOURS box into the page + handles the UI
+    ├── background.ts    # does all the page-reading and caching
+    ├── parser.ts        # pulls slugs / runtimes out of the HTML
+    ├── rateLimiter.ts   # "a few requests at a time" throttle
+    ├── storage.ts       # save/load helpers
+    └── types.ts         # shared types
 ```
 
-## Compilar
+---
 
-Requiere Node 18+.
+## Developing
 
 ```bash
-npm install      # instala esbuild, typescript, @types/chrome
-npm run build    # genera dist/ (background.js, content.js, manifest.json, icons)
-# o, en desarrollo:
-npm run watch    # recompila al guardar
-npm run typecheck
+npm run watch       # rebuild automatically when you edit a file
+npm run typecheck   # check types without building
 ```
 
-El resultado queda en `dist/`, que es la carpeta que se carga en el navegador.
+After a rebuild, click the **reload** icon on the extension card in
+`chrome://extensions` to pick up your changes.
 
-## Cargar en el navegador
+If you ever want to start fresh, open the extension's service worker console
+(`chrome://extensions` → **Letterboxd Hours** → **service worker**) and run:
 
-**Chrome:** ve a `chrome://extensions` → activa **Modo desarrollador** →
-**Cargar descomprimida** → selecciona la carpeta **`dist/`**.
-
-**Edge:** ve a `edge://extensions` → activa **Modo de desarrollador** →
-**Cargar desempaquetada** → selecciona **`dist/`**.
-
-Abre cualquier perfil (p. ej. `https://letterboxd.com/iagoesteevezz/`), pulsa
-**«Calcular horas»** una vez y, a partir de ahí, las horas aparecen al instante
-hasta que añadas más películas.
-
-## Notas y límites
-
-- Los selectores dependen del HTML de Letterboxd (verificados en junio 2026:
-  `data-film-slug` en los pósters, `133&nbsp;mins` en `p.text-footer`,
-  `.profile-statistic > .value/.definition`). Si Letterboxd cambia su markup,
-  actualiza `src/parser.ts` y `findStats()` en `src/content.ts`.
-- Las pelis sin runtime publicado cuentan como 0 min (se cachean igualmente).
-- La primera pasada de un perfil grande tardará (por el rate limiting); es
-  intencionado. Las siguientes son casi instantáneas gracias a la caché.
+```js
+chrome.storage.local.clear()
 ```
+
+---
+
+## Tuning the speed
+
+In `src/background.ts` you can adjust how aggressive the scraping is:
+
+```ts
+const CONCURRENCY = 6;    // how many film pages to fetch at once
+const DELAY_MS    = 250;  // pause between requests (ms)
+```
+
+Higher = faster but pushier. If you ever see `HTTP 429` (Too Many Requests) in the
+service worker console, lower these.
+
+---
+
+## Notes & limits
+
+- The extension relies on Letterboxd's current page structure. If they redesign
+  the site and the count stops working, the patterns to update live in
+  `src/parser.ts` and the `findStats()` function in `src/content.ts`.
+- Films with no published runtime count as 0 minutes.
+- It reads pages while you're logged in, so private/friends-only diary entries
+  are included exactly as you see them.

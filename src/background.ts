@@ -75,8 +75,13 @@ async function resolveRuntimes(
       concurrency: CONCURRENCY,
       delayMs: DELAY_MS,
       signal,
-      onProgress: (done, total) =>
-        post({ type: "PROGRESS", phase: "runtimes", done, total }),
+      onProgress: (done, total) => {
+        post({ type: "PROGRESS", phase: "runtimes", done, total });
+        // Flush progress to storage periodically so an interruption (page
+        // reload kills the worker) doesn't throw away everything we fetched —
+        // a re-run then resumes from here and is much faster.
+        if (done % 25 === 0) void setRuntimeCache(cache);
+      },
     }
   );
 
@@ -111,11 +116,17 @@ async function calcFull(
   }
 
   const cache = await resolveRuntimes(slugs, post, signal);
+
+  // If we were interrupted (port closed / reload), persist what we have as an
+  // INCOMPLETE record: partial minutes, and a film count that deliberately does
+  // NOT match the DOM, so the next load won't trust it and will offer to finish.
+  const complete = !signal.aborted;
   const record: ProfileRecord = {
     username,
-    totalFilms: domFilms || slugs.length,
+    totalFilms: complete ? domFilms || slugs.length : slugs.length,
     totalMinutes: sumMinutes(slugs, cache),
     slugs,
+    complete,
     updatedAt: Date.now(),
   };
   await setProfile(record);
@@ -171,13 +182,19 @@ async function calcDelta(
 
   // Resolve runtimes for ONLY the new films (further deduped by the global cache).
   const cache = await resolveRuntimes(newSlugs, post, signal);
-  const addedMinutes = sumMinutes(newSlugs, cache);
 
+  // A delta is short; if it got interrupted, don't persist a half-applied total.
+  // The old complete record stays intact and the user can simply update again
+  // (re-run is fast — fetched runtimes were already flushed to the cache).
+  if (signal.aborted) return null;
+
+  const addedMinutes = sumMinutes(newSlugs, cache);
   const record: ProfileRecord = {
     username,
     totalFilms: domFilms, // authoritative count from the DOM
     totalMinutes: cached.totalMinutes + addedMinutes, // add, never recompute old
     slugs: [...newSlugs, ...cached.slugs], // newest first, no dupes (all unknown)
+    complete: true,
     updatedAt: Date.now(),
   };
   await setProfile(record);
@@ -193,7 +210,10 @@ async function calculate(
   const { username, domFilms, force } = req;
   const cached = await getProfile(username);
 
-  if (!force && cached) {
+  // Only ever trust a record that finished fully. An incomplete one (interrupted
+  // by a reload) falls through to a FULL recompute, which is fast because the
+  // partial runtimes it already fetched are reused from the global cache.
+  if (!force && cached && cached.complete) {
     // FAST path: counts already match -> echo cache, zero network.
     if (cached.totalFilms === domFilms) {
       post({ type: "RESULT", record: cached });
@@ -206,7 +226,7 @@ async function calculate(
         post({ type: "RESULT", record: delta });
         return;
       }
-      // delta couldn't anchor -> fall through to FULL
+      // delta couldn't anchor / was interrupted -> fall through to FULL
     }
   }
 

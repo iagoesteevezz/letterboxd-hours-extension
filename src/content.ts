@@ -19,6 +19,7 @@ import {
   RequestMessage,
   ResponseMessage,
 } from "./types";
+import { L } from "./i18n";
 
 const MARKER = "lh-hours-stat"; // dedupe class on our injected node
 
@@ -107,7 +108,7 @@ class HoursWidget {
     // If the original is a link, make our clone inert (don't navigate).
     if (this.el.tagName === "A") this.el.removeAttribute("href");
 
-    this.el.querySelector(".definition")!.textContent = "Hours";
+    this.el.querySelector(".definition")!.textContent = L.hours;
     this.valueEl = this.el.querySelector(".value") as HTMLElement;
     this.valueEl.textContent = "–";
 
@@ -139,16 +140,6 @@ class HoursWidget {
   clearControl(): void {
     this.ctlHost.innerHTML = "";
   }
-
-  showError(onRetry: () => void): void {
-    this.ctlHost.innerHTML = "";
-    const wrap = document.createElement("button");
-    wrap.className = "lh-ctl";
-    wrap.type = "button";
-    wrap.innerHTML = `<span aria-hidden="true">⚠</span><span>Reintentar</span>`;
-    wrap.addEventListener("click", onRetry);
-    this.ctlHost.appendChild(wrap);
-  }
 }
 
 // ---- Talking to the background worker --------------------------------------
@@ -161,16 +152,27 @@ function calculate(
   }
 ): void {
   const port = chrome.runtime.connect({ name: PORT_NAME });
+  let finished = false; // got a RESULT/ERROR before the port closed?
+
   port.onMessage.addListener((msg: ResponseMessage) => {
     if (msg.type === "PROGRESS") handlers.onProgress(msg);
     else if (msg.type === "RESULT") {
+      finished = true;
       handlers.onResult(msg.record);
       port.disconnect();
     } else if (msg.type === "ERROR") {
+      finished = true;
       handlers.onError(msg.message);
       port.disconnect();
     }
   });
+
+  // If the worker goes away without a result (e.g. the service worker was
+  // killed), don't leave the UI stuck on "Calculando…" — surface a retry.
+  port.onDisconnect.addListener(() => {
+    if (!finished) handlers.onError("interrupted");
+  });
+
   port.postMessage(req);
 }
 
@@ -200,43 +202,50 @@ async function init(): Promise<void> {
 
   // Wraps the calculate() call with all the UI state transitions.
   const run = (force: boolean) => {
-    widget.showLoading("Calculando…");
+    widget.showLoading(L.calculating);
     calculate(
       { type: "CALCULATE", username, domFilms, force },
       {
         onProgress: (p) => {
-          const label =
-            p.phase === "list"
-              ? `Listando ${p.done}/${p.total}`
-              : `Duraciones ${p.done}/${p.total}`;
-          widget.showLoading(label);
+          const phase = p.phase === "list" ? L.listing : L.runtimes;
+          widget.showLoading(`${phase} ${p.done}/${p.total}`);
         },
         onResult: (record) => {
           widget.setHours(record.totalMinutes);
-          // If somehow still behind the DOM, keep an update affordance (delta).
-          if (record.totalFilms < domFilms) {
-            widget.showButton("Actualizar horas", () => run(false));
+          if (!record.complete) {
+            // Interrupted before finishing: offer to complete it (force full).
+            widget.showButton(L.finish, () => run(true));
+          } else if (record.totalFilms < domFilms) {
+            // Still behind the DOM: keep an update affordance (delta).
+            widget.showButton(L.update, () => run(false));
           } else {
             widget.clearControl();
           }
         },
-        onError: () => widget.showError(() => run(true)),
+        // Covers both real errors and an interrupted run: let the user resume
+        // (force full -> reuses any partial progress, so it's fast).
+        onError: () => widget.showButton(L.resume, () => run(true)),
       }
     );
   };
 
-  if (cached && cached.totalFilms === domFilms) {
-    // Cache is fresh: show instantly, no network.
+  if (cached && !cached.complete) {
+    // A previous calculation was interrupted (e.g. page reloaded mid-scrape).
+    // Show the partial value and let the user finish it.
+    widget.setHours(cached.totalMinutes);
+    widget.showButton(L.finish, () => run(true));
+  } else if (cached && cached.complete && cached.totalFilms === domFilms) {
+    // Cache is fresh and trustworthy: show instantly, no network.
     widget.setHours(cached.totalMinutes);
     widget.clearControl();
-  } else if (cached) {
-    // Cache exists but profile grew: show old value + discreet "update" (delta).
+  } else if (cached && cached.complete) {
+    // Cache is complete but the profile grew: old value + "update" (delta).
     widget.setHours(cached.totalMinutes);
-    widget.showButton("Actualizar horas", () => run(false));
+    widget.showButton(L.update, () => run(false));
   } else {
     // No cache yet: offer a one-click calculation (kept manual so we never
     // scrape without the user's intent).
-    widget.showButton("Calcular horas", () => run(false));
+    widget.showButton(L.calc, () => run(false));
   }
 }
 

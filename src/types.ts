@@ -9,6 +9,12 @@ export interface ProfileRecord {
   totalMinutes: number;
   /** Slugs counted in totalMinutes (lets us diff against a fresh scrape later). */
   slugs: string[];
+  /**
+   * True only when the calculation finished fully (not interrupted by a page
+   * reload / navigation). An incomplete record holds partial progress and must
+   * never be trusted as final — it triggers a "finish the calculation" prompt.
+   */
+  complete: boolean;
   /** Epoch ms of the last successful calculation. */
   updatedAt: number;
 }
