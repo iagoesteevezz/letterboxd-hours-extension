@@ -30,9 +30,6 @@ Then load the `dist/` folder into your browser:
 Open any profile (e.g. `https://letterboxd.com/iagoesteevezz/`), click
 **"Calculate hours"** once, and you're done. After that the hours show instantly.
 
-> The button text follows your browser language (English by default, Spanish
-> included). Add more languages in `src/i18n.ts`.
-
 ---
 
 ## Demo
@@ -45,10 +42,6 @@ Open any profile (e.g. `https://letterboxd.com/iagoesteevezz/`), click
 fetches the new ones (instant):
 
 ![Delta update](docs/update.gif)
-
-> These are illustrative mockups of the injected widget. Want them to be real
-> screen recordings instead? Record a GIF from your browser and replace the two
-> files in `docs/`.
 
 ---
 
