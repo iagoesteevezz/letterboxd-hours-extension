@@ -1,0 +1,17 @@
+{
+  "name": "letterboxd-hours",
+  "version": "1.0.0",
+  "description": "Chrome/Edge MV3 extension that injects a total 'HOURS watched' statistic into Letterboxd profiles.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.4.5"
+  }
+}
