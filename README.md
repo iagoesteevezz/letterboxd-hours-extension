@@ -4,7 +4,7 @@ See how many **hours** anyone has spent watching films on Letterboxd.
 
 This browser extension adds an **HOURS** counter to every Letterboxd profile, right next to **FILMS**, styled like the native stats.
 
-<!-- SCREENSHOT: profile page with the HOURS counter next to FILMS (docs/screenshot-profile.png) -->
+![Letterboxd profile showing the HOURS counter next to FILMS](<docs/ProfileExample.png>)
 
 ---
 
@@ -20,10 +20,6 @@ You don't need Node, git or the code. Just the zip.
 6. Select the **`dist`** folder you unzipped (the one that has `manifest.json` inside) and confirm.
 
 Done. "Letterboxd Hours" now shows in your extensions list.
-
-<!-- SCREENSHOT: step 2, the unzipped dist folder (docs/install-1-unzip.png) -->
-<!-- SCREENSHOT: steps 4-5, chrome://extensions with Developer mode on and the Load unpacked button (docs/install-2-load-unpacked.png) -->
-<!-- SCREENSHOT: step 6, folder picker with dist selected (docs/install-3-select-dist.png) -->
 
 **Problems?**
 - *"Manifest file is missing or unreadable"*: you picked the wrong folder. Pick the `dist` folder that contains `manifest.json`, not the zip and not a parent folder.
