@@ -71,7 +71,8 @@ Demo, updating after watching new films:
 | Chrome | Yes |
 | Edge | Yes |
 | Opera / Brave and other Chromium browsers | Should work, same steps |
-| Firefox / Safari | Not yet |
+| Firefox 140+ | Yes (build from source, see below) |
+| Safari | Not yet |
 
 It uses Manifest V3.
 
@@ -107,6 +108,14 @@ npm run typecheck   # types only
 ```
 
 After a rebuild, click the reload icon on the extension card in `chrome://extensions`.
+
+### Firefox
+
+```bash
+npm run build:firefox   # outputs to dist-firefox/
+```
+
+Then open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on** and pick `dist-firefox/manifest.json`. Temporary add-ons are removed when Firefox closes. If the HOURS counter doesn't show, go to `about:addons` > Letterboxd Hours > Permissions and allow access to letterboxd.com.
 
 ### Project layout
 
