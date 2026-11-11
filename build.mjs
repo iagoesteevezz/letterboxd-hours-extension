@@ -3,10 +3,11 @@
 //   node build.mjs           -> one-off production build
 //   node build.mjs --watch   -> rebuild on change (great while developing)
 import * as esbuild from "esbuild";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 
 const watch = process.argv.includes("--watch");
-const outdir = "dist";
+const firefox = process.argv.includes("--firefox"); // node build.mjs --firefox -> dist-firefox/
+const outdir = firefox ? "dist-firefox" : "dist";
 
 // Each entry point becomes its own bundle. MV3 requires plain files referenced
 // from manifest.json (background.js, content.js) with no external imports at runtime,
@@ -18,7 +19,7 @@ const buildOptions = {
   },
   bundle: true,
   format: "iife",          // IIFE = safe for both service worker and content-script contexts
-  target: "chrome110",     // covers modern Chrome + Edge (Chromium)
+  target: firefox ? "firefox140" : "chrome110", // modern Firefox, or Chrome + Edge (Chromium)
   outdir,
   sourcemap: watch ? "inline" : false,
   legalComments: "none",
@@ -28,6 +29,20 @@ const buildOptions = {
 async function copyStatic() {
   // Copy manifest + icons verbatim into dist/.
   await cp("public", outdir, { recursive: true });
+  if (!firefox) return;
+  // Firefox MV3 has no service_worker: it uses an event page (background.scripts)
+  // and needs an add-on id. chrome.* APIs work as-is (promises supported).
+  const path = `${outdir}/manifest.json`;
+  const m = JSON.parse(await readFile(path, "utf8"));
+  m.background = { scripts: ["background.js"] };
+  m.browser_specific_settings = {
+    gecko: {
+      id: "letterboxd-hours@iagoesteevezz",
+      strict_min_version: "140.0",
+      data_collection_permissions: { required: ["none"] },
+    },
+  };
+  await writeFile(path, JSON.stringify(m, null, 2) + "\n");
 }
 
 async function run() {
